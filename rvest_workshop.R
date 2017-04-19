@@ -10,6 +10,7 @@
 # install.packages("tidyr")
 # install.packages("dplyr")
 # install.packages("ggplot2")
+# install.packages("stringr")
 
 library(rvest)
 # Notice the xml2 package is also loaded. 
@@ -272,8 +273,6 @@ getTitles("Faulkner")
 # refrigerators with french doors
 # get Description, Model, Price, average review
 
-# This is a longer, more involved example. 
-
 # go to http://www.bestbuy.com/ and search for "refrigerators with french doors"
 
 # Resulting URL is long
@@ -285,24 +284,19 @@ page <- read_html(URL)
 # Now let's figure out how to select the information we want to scrape
 
 # Description
-# found h4 with GadgetSelector
-# took some trial and error to figure out the id #main-results;
+# found ".sku-title a" with SelectorGadget
 # Description contains Brand, size, description and color; 
 # we can separate them out if we want after scraping
-page %>% html_nodes("#main-results h4")
-page %>% html_nodes("#main-results h4") %>% html_text()
-description <- page %>% html_nodes("#main-results h4") %>% html_text()
+description <- page %>% html_nodes(".sku-title a") %>% html_text()
+
+# pull Brand out of description; Brand appears to always preceded a dash.
+# use str_extract() from the string package
+brand <- stringr::str_extract(string = description, 
+                              pattern = "[[:alpha:]]*(?= \\-)")
 
 
 # Model number
-# .model-number found with GadgetSelector
-page %>% html_nodes(".model-number") %>% html_text()
-
-# Would be nice not to scrape "Model:"
-# Notice the model number has class .sku-value
-page %>% html_nodes(".model-number")
-page %>% html_nodes(".model-number .sku-value")
-page %>% html_nodes(".model-number .sku-value") %>% html_text()
+# ".model-number .sku-value" found with SelectorGadget
 model <- page %>% html_nodes(".model-number .sku-value") %>% html_text()
 
 
@@ -319,28 +313,26 @@ page %>% html_nodes("div.list-item") %>% html_attr("data-price")
 # phrase "See price in cart" if there is no price. But that results in extra
 # clean up.
 
-page %>% html_nodes("div.list-item") %>% html_attr("data-price") %>% as.numeric()
-price <- page %>% html_nodes("div.list-item") %>% html_attr("data-price") %>% as.numeric()
+price <- page %>% html_nodes("div.list-item") %>% 
+  html_attr("data-price") %>% as.numeric()
 
 # average review
 
 # Again we use attributes. Inside div.list-item there are attributes
 # "data-average-rating" and "data-review-count"
-page %>% html_nodes("div.list-item") %>% 
-  html_attr("data-average-rating") %>% as.numeric()
-
-page %>% html_nodes("div.list-item") %>% 
-  html_attr("data-review-count") %>% as.numeric()
-
 avg.rating <- page %>% html_nodes("div.list-item") %>% 
   html_attr("data-average-rating") %>% as.numeric()
+
 review.count <- page %>% html_nodes("div.list-item") %>% 
   html_attr("data-review-count") %>% as.numeric()
 
 
 # Combine into data frame
 # set stringsAsFactors = FALSE, else text converted to Factor
-dat <- data.frame(description, model, price, avg.rating, review.count, stringsAsFactors = FALSE)
+dat <- data.frame(description, brand, model, price, avg.rating, review.count, 
+                  stringsAsFactors = FALSE)
+
+# That's just page 1 results. Want to get all results. 
 
 # Turn what we did into a function called getData
 
@@ -348,14 +340,17 @@ dat <- data.frame(description, model, price, avg.rating, review.count, stringsAs
 # data frame
 getData <- function(url){
   page <- read_html(url)
-  description <- page %>% html_nodes("#main-results h4") %>% html_text()
+  description <- page %>% html_nodes(".sku-title a") %>% html_text()
+  brand <- stringr::str_extract(string = description, 
+                                pattern = "[[:alpha:]]*(?= \\-)")
   model <- page %>% html_nodes(".model-number .sku-value") %>% html_text()
-  price <- page %>% html_nodes("div.list-item") %>% html_attr("data-price") %>% as.numeric()
+  price <- page %>% html_nodes("div.list-item") %>% 
+    html_attr("data-price") %>% as.numeric()
   avg.rating <- page %>% html_nodes("div.list-item") %>% 
     html_attr("data-average-rating") %>% as.numeric()
   review.count <- page %>% html_nodes("div.list-item") %>% 
     html_attr("data-review-count") %>% as.numeric()
-  data.frame(description, model, price, avg.rating, 
+  data.frame(description, brand, model, price, avg.rating, 
              review.count, stringsAsFactors = FALSE)
 }
 
@@ -389,9 +384,9 @@ allDatDF <- dplyr::bind_rows(allDat)
 
 # We need to be able to do two things:
 # 1. submit the search form
-# 2. automatically assemble our list of URLs for our getData function
+# 2. automatically assemble a list of URLs for our getData function
 
-# Let's do #2 first.
+# Let's start on #2 first.
 
 # We'll create a function to generate a vector of URLs for whatever we search for.
 
@@ -406,41 +401,25 @@ page %>% html_nodes(".active .count") %>% html_text()
 
 # Use the parse_number() function from the readr package to handle numbers with
 # commas (eg: 5,664) and to remove parentheses:
-page %>% html_nodes(".active .count") %>% html_text() %>% readr::parse_number()
-
 total <- page %>% html_nodes(".active .count") %>% 
   html_text() %>% readr::parse_number()
 
 
 # divide by 24 and use ceiling to get number of pages, and then generate sequence
 pages <- ceiling(total/24) %>% seq()
+
 # create vector of URLs using pages instead of 1:5
 allURLs <- paste0("http://www.bestbuy.com/site/searchpage.jsp?st=refrigerators+with+french+doors&_dyncharset=UTF-8&id=pcat17071&type=page&sc=Global&cp=",
                   pages,
                   "&nrp=&sp=&qp=&list=n&af=true&iht=y&usc=All+Categories&ks=960&keys=keys")
 
-# create function
-getURLS <- function(url){
-  page <- read_html(url)
-  total <- page %>% html_nodes(".active .count") %>% 
-    html_text() %>% readr::parse_number()
-  pages <- ceiling(total/24) %>% seq()
-  paste0("http://www.bestbuy.com/site/searchpage.jsp?st=refrigerators+with+french+doors&_dyncharset=UTF-8&id=pcat17071&type=page&sc=Global&cp=",
-         pages,
-         "&nrp=&sp=&qp=&list=n&af=true&iht=y&usc=All+Categories&ks=960&keys=keys")
-}
 
-getURLS(URL)
-allURLs <- getURLS(URL)
+# To generalize the function, we need to get the URL produced by the search.
 
-# try out with function
-allDat <- pblapply(allURLs, getData)
-allDatDF <- dplyr::bind_rows(allDat)
+# Let's see what we get when we submit the form using submit_form()
 
-
-# Now let's build a function that allows us to submit a form request to bestbuy.com
-
-# Recall we need to use html_session instead of read_html
+# Recall we need to use html_session instead of read_html when we intend to
+# submit a form:
 bb <- html_session("http://www.bestbuy.com/")
 
 # to see form fields use html_form()
@@ -453,21 +432,19 @@ bb %>% html_form()
 f0 <- html_form(bb)[[1]]
 # set values using set_values()
 f1 <- set_values(form = f0, st = "refrigerators with french doors")
-
-bb %>% submit_form(f1)
+# and submit the form with our values and save
 page <- bb %>% submit_form(f1)
 
 # the result is the same as before plus more; page is a parsed html file that we
 # can use html_nodes on:
 page %>% html_nodes(".active .count")
+page %>% html_nodes("div.list-item") %>% 
+  html_attr("data-review-count")
 
 # but it also has the URL generated from the search
 page$url
 
-# We can use page$url with our getURLS() function
-
-# First need to generalize getURLs function to work for any search;
-# previously it worked for "refrigerators with french doors"
+# We can use page$url to build our vector of search result URLs
 
 # Notice we can use strsplit to split the URL at "cp="
 strsplit(page$url, "cp=1")
@@ -476,29 +453,19 @@ parts <- unlist(strsplit(page$url, "cp=1"))
 cp <- paste0("cp=",pages)
 paste0(parts[1],cp,parts[2])
 
-# Update function. Basically just add in what we did above
-getURLS <- function(url){
-  page <- read_html(url)
-  total <- page %>% html_nodes(".active .count") %>% 
-    html_text() %>% readr::parse_number()
-  pages <- ceiling(total/24) %>% seq()
-  cp <- paste0("cp=",pages)
-  parts <- unlist(strsplit(url, "cp=1"))
-  paste0(parts[1],cp,parts[2])
-}
-
-# Test it
-getURLS(page$url)
-
-
-# Now we can build a master function to search and scrape Best Buy
+# Let's use all this to build a master function to search and scrape Best Buy
 bbSearch <- function(x){
   bb <- html_session("http://www.bestbuy.com/")
   f0 <- html_form(bb)[[1]]
   f1 <- set_values(form = f0, st = x)
   page <- bb %>% submit_form(f1)
   # create vector of URLS 
-  allURLs <- getURLS(page$url)
+  total <- page %>% html_nodes(".active .count") %>% 
+    html_text() %>% readr::parse_number()
+  pages <- ceiling(total/24) %>% seq()
+  cp <- paste0("cp=",pages)
+  parts <- unlist(strsplit(page$url, "cp=1"))
+  allURLs <- paste0(parts[1],cp,parts[2])
   # scrape site using getData
   allDat <- pblapply(allURLs, getData)
   dplyr::bind_rows(allDat)
@@ -507,20 +474,12 @@ bbSearch <- function(x){
 # test it
 fridgeData <- bbSearch("refrigerators with french doors")
 
-# Try for "TV"
+# Try for "TV"; does everything work?
 tvData <- bbSearch("TV")
 
 
 # some basic analysis by brand
 
-# pull Brand out of description
-fridgeData$description
-
-# Brand appears to always preceded a dash. 
-strsplit(fridgeData$description, split = " - ") %>% sapply(function(x)x[1])
-fridgeData$brand <- strsplit(fridgeData$description, split = " - ") %>% sapply(function(x)x[1])
-
-# Should probably just add that to the function above!
 
 # Break down of brands
 table(fridgeData$brand)
@@ -540,8 +499,7 @@ fridgeData %>%
   select(description, avg.rating, review.count, price) %>% 
   View()
 
+
 # distribution of prices by brand
 library(ggplot2)
 ggplot(fridgeData, aes(x = brand, y = price)) + geom_boxplot()
-
-
