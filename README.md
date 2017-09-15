@@ -8,3 +8,5 @@ Relevant session info:
 - other attached packages: pbapply_1.3-1, magrittr_1.5, rvest_0.3.2, xml2_1.1.1   
 - loaded via a namespace (and not attached): httr_1.2.1     
 - accessed with double colon (::) tidyr_0.6.1, dplyr_0.5.0, readr_1.0.0 
+
+Code may need to be adapted for newer package versions
